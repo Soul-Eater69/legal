@@ -9,6 +9,7 @@ export interface Session {
   id: string;
   documentText: string;
   originalFileName: string;
+  originalFileBuffer: string; // Base64 encoded buffer (for serverless compatibility)
   placeholders: Placeholder[];
   conversationHistory: Message[];
   createdAt: Date;

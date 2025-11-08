@@ -1,8 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { generateDocx } from '@/lib/docx-generator';
 import { getSession } from '@/lib/session-manager';
-import { readFileSync, existsSync } from 'fs';
-import path from 'path';
 
 export async function POST(request: NextRequest) {
   try {
@@ -34,20 +32,16 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // Define the directory where uploaded files are stored
-    const uploadDir = path.join(process.cwd(), 'uploads');
-    const fileName = `${session.id}_${session.originalFileName}`;
-    const filePath = path.join(uploadDir, fileName);
-
-    if (!existsSync(filePath)) {
+    // Decode Base64 buffer from session
+    if (!session.originalFileBuffer) {
       return NextResponse.json(
-        { error: 'Original file not found. Please upload the document again.' },
+        { error: 'Original file buffer not found. Please upload the document again.' },
         { status: 404 }
       );
     }
 
-    // Read the original document
-    const originalBuffer = readFileSync(filePath);
+    console.log('Decoding Base64 buffer from session...');
+    const originalBuffer = Buffer.from(session.originalFileBuffer, 'base64');
     const arrayBuffer = originalBuffer.buffer.slice(
       originalBuffer.byteOffset,
       originalBuffer.byteOffset + originalBuffer.byteLength
