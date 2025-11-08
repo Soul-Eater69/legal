@@ -57,16 +57,22 @@ export function detectPlaceholders(text: string): Placeholder[] {
     let description: string;
     let type: Placeholder['type'] = 'text';
 
+    let originalText: string;
+
     if (isBlank) {
       // Infer placeholder from context for blank fields
       const inference = inferFromContext(context, placeholders.size);
       if (!inference) continue; // Skip if we can't infer
-      
+
       name = inference.name;
+      originalText = content; // Store the original blank field text
       description = inference.description;
       type = inference.type;
     } else {
-      // Named placeholder - normalize the name
+      // Named placeholder - store original and create normalized version
+      originalText = content; // e.g., "Company Name"
+
+      // Normalize the name for internal use
       name = content
         .toUpperCase()
         .replace(/[^A-Z0-9]+/g, '_')
@@ -84,6 +90,7 @@ export function detectPlaceholders(text: string): Placeholder[] {
     if (!placeholders.has(name)) {
       placeholders.set(name, {
         name,
+        originalText,
         value: null,
         type,
         description

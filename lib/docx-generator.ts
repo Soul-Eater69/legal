@@ -26,7 +26,30 @@ export async function generateDocx(
 
     // Create a PizZip instance with the original file
     const zip = new PizZip(nodeBuffer);
-    
+
+    // Preprocess XML to merge split text runs (fixes Word formatting issues)
+    // This handles cases where placeholders are split like: [Company</w:t>...<w:t>Name]
+    try {
+      const documentXml = zip.file('word/document.xml');
+      if (documentXml) {
+        let xmlContent = documentXml.asText();
+
+        // Merge consecutive <w:t> tags that might split placeholders
+        // Pattern: </w:t></w:r><w:r...><w:t> becomes a single text run
+        xmlContent = xmlContent.replace(
+          /<\/w:t><\/w:r><w:r[^>]*><w:rPr>.*?<\/w:rPr><w:t([^>]*)>/g,
+          ''
+        );
+
+        // Update the zip with cleaned XML
+        zip.file('word/document.xml', xmlContent);
+        console.log('XML preprocessed to merge split text runs');
+      }
+    } catch (preprocessError) {
+      console.error('Error preprocessing XML:', preprocessError);
+      // Continue anyway - not critical
+    }
+
     // Create docxtemplater instance with custom delimiters
     // Use square brackets [PLACEHOLDER] instead of default curly braces {PLACEHOLDER}
     const doc = new Docxtemplater(zip, {
@@ -55,12 +78,13 @@ export async function generateDocx(
       console.error('Error reading XML:', xmlError);
     }
 
-    // Build data object from placeholders
+    // Build data object from placeholders using ORIGINAL text as keys
+    // This matches what docxtemplater will find in the XML (e.g., "Company Name" not "COMPANY_NAME")
     const data: Record<string, string> = {};
     for (const placeholder of placeholders) {
       if (placeholder.value) {
-        data[placeholder.name] = placeholder.value;
-        data[placeholder.name.toLowerCase()] = placeholder.value;
+        // Use the original text from the document as the key
+        data[placeholder.originalText] = placeholder.value;
       }
     }
 
