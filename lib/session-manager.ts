@@ -1,17 +1,9 @@
 import { Session, Placeholder, Message } from './types';
 import { randomBytes } from 'crypto';
-import { writeFileSync, readFileSync, existsSync, mkdirSync } from 'fs';
-import path from 'path';
 
-// In-memory session store with persistent file backup
+// In-memory session store (serverless-compatible)
 const sessions: Map<string, Session> = new Map();
-const SESSIONS_DIR = path.join(process.cwd(), 'sessions');
 const SESSION_TIMEOUT = 24 * 60 * 60 * 1000; // 24 hours
-
-// Ensure sessions directory exists
-if (!existsSync(SESSIONS_DIR)) {
-  mkdirSync(SESSIONS_DIR, { recursive: true });
-}
 
 /**
  * Generates a unique session ID
@@ -26,6 +18,7 @@ export function generateSessionId(): string {
 export function createSession(
   documentText: string,
   originalFileName: string,
+  originalFileBuffer: string,
   placeholders: Placeholder[]
 ): Session {
   const sessionId = generateSessionId();
@@ -35,6 +28,7 @@ export function createSession(
     id: sessionId,
     documentText,
     originalFileName,
+    originalFileBuffer,
     placeholders,
     conversationHistory: [],
     createdAt: now,
@@ -43,9 +37,6 @@ export function createSession(
 
   // Store in memory
   sessions.set(sessionId, session);
-
-  // Persist to disk
-  persistSession(session);
 
   // Clean up old sessions
   cleanupOldSessions();
@@ -57,16 +48,9 @@ export function createSession(
  * Retrieves a session by ID
  */
 export function getSession(sessionId: string): Session | null {
-  // Check in-memory first
+  // Check in-memory store
   if (sessions.has(sessionId)) {
     return sessions.get(sessionId)!;
-  }
-
-  // Try loading from disk
-  const session = loadSessionFromDisk(sessionId);
-  if (session) {
-    sessions.set(sessionId, session);
-    return session;
   }
 
   return null;
@@ -88,7 +72,6 @@ export function updateSession(sessionId: string, updates: Partial<Session>): Ses
   };
 
   sessions.set(sessionId, updatedSession);
-  persistSession(updatedSession);
 
   return updatedSession;
 }
@@ -123,56 +106,7 @@ export function addMessageToSession(
  * Deletes a session
  */
 export function deleteSession(sessionId: string): boolean {
-  sessions.delete(sessionId);
-
-  const sessionFile = path.join(SESSIONS_DIR, `${sessionId}.json`);
-  if (existsSync(sessionFile)) {
-    const fs = require('fs');
-    fs.unlinkSync(sessionFile);
-    return true;
-  }
-
-  return false;
-}
-
-/**
- * Persists a session to disk
- */
-function persistSession(session: Session): void {
-  try {
-    const sessionFile = path.join(SESSIONS_DIR, `${session.id}.json`);
-    writeFileSync(sessionFile, JSON.stringify(session, null, 2), 'utf-8');
-  } catch (error) {
-    console.error(`Failed to persist session ${session.id}:`, error);
-  }
-}
-
-/**
- * Loads a session from disk
- */
-function loadSessionFromDisk(sessionId: string): Session | null {
-  try {
-    const sessionFile = path.join(SESSIONS_DIR, `${sessionId}.json`);
-    if (!existsSync(sessionFile)) {
-      return null;
-    }
-
-    const data = readFileSync(sessionFile, 'utf-8');
-    const session = JSON.parse(data);
-
-    // Convert date strings back to Date objects
-    session.createdAt = new Date(session.createdAt);
-    session.updatedAt = new Date(session.updatedAt);
-    session.conversationHistory = session.conversationHistory.map((msg: any) => ({
-      ...msg,
-      timestamp: new Date(msg.timestamp),
-    }));
-
-    return session;
-  } catch (error) {
-    console.error(`Failed to load session ${sessionId}:`, error);
-    return null;
-  }
+  return sessions.delete(sessionId);
 }
 
 /**
@@ -181,26 +115,11 @@ function loadSessionFromDisk(sessionId: string): Session | null {
 function cleanupOldSessions(): void {
   try {
     const now = Date.now();
-    const fs = require('fs');
 
     // Clean up in-memory sessions
     for (const [sessionId, session] of sessions.entries()) {
       if (now - session.updatedAt.getTime() > SESSION_TIMEOUT) {
         sessions.delete(sessionId);
-      }
-    }
-
-    // Clean up disk sessions
-    if (existsSync(SESSIONS_DIR)) {
-      const files = fs.readdirSync(SESSIONS_DIR);
-      for (const file of files) {
-        if (!file.endsWith('.json')) continue;
-
-        const filePath = path.join(SESSIONS_DIR, file);
-        const stats = fs.statSync(filePath);
-        if (now - stats.mtimeMs > SESSION_TIMEOUT) {
-          fs.unlinkSync(filePath);
-        }
       }
     }
   } catch (error) {

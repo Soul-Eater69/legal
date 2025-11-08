@@ -1,8 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { extractTextFromDocx, detectPlaceholders } from '@/lib/document-processor';
 import { createSession } from '@/lib/session-manager';
-import { writeFileSync, mkdirSync, existsSync } from 'fs';
-import path from 'path';
 
 export async function POST(request: NextRequest) {
   try {
@@ -29,16 +27,6 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // Define the uploads directory
-    const uploadDir = path.join(process.cwd(), 'uploads');
-    console.log('[UPLOAD] Upload directory:', uploadDir);
-
-    // Ensure the directory exists
-    if (!existsSync(uploadDir)) {
-      console.log('[UPLOAD] Creating uploads directory...');
-      mkdirSync(uploadDir, { recursive: true });
-    }
-
     // Extract text from document first
     console.log('[UPLOAD] Extracting text from DOCX...');
     const buffer = await file.arrayBuffer();
@@ -58,20 +46,15 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // Create a session
+    // Convert buffer to Base64 for serverless-compatible storage
+    console.log('[UPLOAD] Encoding buffer to Base64...');
+    const base64Buffer = Buffer.from(buffer).toString('base64');
+    console.log('[UPLOAD] Buffer encoded, size:', base64Buffer.length);
+
+    // Create a session with the encoded buffer
     console.log('[UPLOAD] Creating session...');
-    const session = createSession(documentText, file.name, placeholders);
+    const session = createSession(documentText, file.name, base64Buffer, placeholders);
     console.log('[UPLOAD] Session created:', session.id);
-
-    // Save the uploaded file with session ID to avoid conflicts
-    // Sanitize filename to prevent issues with special characters
-    const sanitizedFileName = file.name.replace(/[^a-zA-Z0-9._-]/g, '_');
-    const fileName = `${session.id}_${sanitizedFileName}`;
-    const filePath = path.join(uploadDir, fileName);
-    console.log('[UPLOAD] Saving file to:', filePath);
-
-    writeFileSync(filePath, Buffer.from(buffer));
-    console.log('[UPLOAD] File saved successfully');
 
     // Create preview (first 500 chars)
     const preview = documentText.substring(0, 500) + (documentText.length > 500 ? '...' : '');
