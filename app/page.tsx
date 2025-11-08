@@ -14,6 +14,7 @@ interface Placeholder {
 }
 
 export default function DocumentFillerPage() {
+  const [sessionId, setSessionId] = useState<string | null>(null);
   const [file, setFile] = useState<File | null>(null);
   const [placeholders, setPlaceholders] = useState<Placeholder[]>([]);
   const [messages, setMessages] = useState<Array<{ role: 'user' | 'assistant'; content: string }>>([]);
@@ -23,7 +24,7 @@ export default function DocumentFillerPage() {
   const [isComplete, setIsComplete] = useState(false);
   const [isGenerating, setIsGenerating] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  
+
   const fileInputRef = useRef<HTMLInputElement>(null);
   const chatEndRef = useRef<HTMLDivElement>(null);
 
@@ -61,6 +62,7 @@ export default function DocumentFillerPage() {
       }
 
       const data = await response.json();
+      setSessionId(data.sessionId);
       setPlaceholders(data.placeholders);
 
       const unfilledPlaceholder = data.placeholders.find((p: Placeholder) => !p.value);
@@ -71,6 +73,7 @@ export default function DocumentFillerPage() {
       console.error('Upload error:', err);
       setError(err instanceof Error ? err.message : 'Failed to upload document');
       setFile(null);
+      setSessionId(null);
     } finally {
       setIsUploading(false);
     }
@@ -87,7 +90,7 @@ export default function DocumentFillerPage() {
   };
 
   const handleSendMessage = async () => {
-    if (!input.trim() || isChatting) return;
+    if (!input.trim() || isChatting || !sessionId) return;
 
     const userMessage = input.trim();
     setInput('');
@@ -100,9 +103,9 @@ export default function DocumentFillerPage() {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
+          sessionId,
           message: userMessage,
           placeholders,
-          conversationHistory: messages,
         }),
       });
 
@@ -123,6 +126,11 @@ export default function DocumentFillerPage() {
   };
 
   const handleDownload = async () => {
+    if (!sessionId) {
+      setError('No active session. Please upload a document first.');
+      return;
+    }
+
     setIsGenerating(true);
     setError(null);
 
@@ -131,8 +139,7 @@ export default function DocumentFillerPage() {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          placeholders,
-          fileName: file?.name,
+          sessionId,
         }),
       });
 
@@ -142,16 +149,38 @@ export default function DocumentFillerPage() {
       }
 
       const blob = await response.blob();
+
+      // Validate that we actually got a document
+      if (blob.size === 0) {
+        throw new Error('Generated document is empty');
+      }
+
       const url = URL.createObjectURL(blob);
       const a = document.createElement('a');
       a.href = url;
-      a.download = `${file?.name.replace('.docx', '') || 'document'}_completed_${new Date().toISOString().split('T')[0]}.docx`;
+
+      // Extract filename from Content-Disposition header if available
+      const contentDisposition = response.headers.get('Content-Disposition');
+      let filename = `${file?.name.replace('.docx', '') || 'document'}_completed_${new Date().toISOString().split('T')[0]}.docx`;
+
+      if (contentDisposition) {
+        const filenameMatch = contentDisposition.match(/filename="?([^"]+)"?/);
+        if (filenameMatch && filenameMatch[1]) {
+          filename = filenameMatch[1];
+        }
+      }
+
+      a.download = filename;
       document.body.appendChild(a);
       a.click();
-      document.body.removeChild(a);
-      URL.revokeObjectURL(url);
 
-      setMessages(prev => [...prev, { role: 'assistant', content: '🎉 Your document has been downloaded! Check your downloads folder.' }]);
+      // Clean up
+      setTimeout(() => {
+        document.body.removeChild(a);
+        URL.revokeObjectURL(url);
+      }, 100);
+
+      setMessages(prev => [...prev, { role: 'assistant', content: `🎉 Your document has been downloaded successfully! The file "${filename}" should be in your downloads folder.` }]);
     } catch (err) {
       console.error('Download error:', err);
       setError(err instanceof Error ? err.message : 'Failed to generate document');
@@ -161,6 +190,7 @@ export default function DocumentFillerPage() {
   };
 
   const handleReset = () => {
+    setSessionId(null);
     setFile(null);
     setPlaceholders([]);
     setMessages([]);
@@ -169,15 +199,87 @@ export default function DocumentFillerPage() {
     setError(null);
   };
 
-  // Format message content with markdown-style bold
+  // Format message content with markdown-style formatting
   const formatMessageContent = (content: string) => {
-    const parts = content.split(/(\*\*[^*]+\*\*)/g);
-    return parts.map((part, idx) => {
-      if (part.startsWith('**') && part.endsWith('**')) {
-        return <strong key={idx} className="font-semibold">{part.slice(2, -2)}</strong>;
+    const lines = content.split('\n');
+    return lines.map((line, lineIdx) => {
+      // Handle bullet points
+      if (line.trim().startsWith('•') || line.trim().startsWith('-')) {
+        const bulletContent = line.replace(/^[•\-]\s*/, '');
+        return (
+          <div key={lineIdx} className="flex gap-2 ml-2">
+            <span className="text-foreground/70">•</span>
+            <span>{formatInlineContent(bulletContent)}</span>
+          </div>
+        );
       }
-      return part;
+
+      // Handle numbered lists
+      if (/^\d+\.\s/.test(line.trim())) {
+        return (
+          <div key={lineIdx} className="ml-2">
+            {formatInlineContent(line)}
+          </div>
+        );
+      }
+
+      // Regular line
+      return (
+        <div key={lineIdx}>
+          {formatInlineContent(line)}
+        </div>
+      );
     });
+  };
+
+  // Format inline content (bold, italic, code)
+  const formatInlineContent = (text: string) => {
+    const parts: React.ReactNode[] = [];
+    let lastIndex = 0;
+
+    // Pattern for **bold**, *italic*, and `code`
+    const pattern = /(\*\*[^*]+\*\*|\*[^*]+\*|`[^`]+`)/g;
+    let match;
+
+    while ((match = pattern.exec(text)) !== null) {
+      // Add text before the match
+      if (match.index > lastIndex) {
+        parts.push(text.substring(lastIndex, match.index));
+      }
+
+      const matched = match[0];
+      if (matched.startsWith('**') && matched.endsWith('**')) {
+        // Bold
+        parts.push(
+          <strong key={match.index} className="font-semibold text-foreground">
+            {matched.slice(2, -2)}
+          </strong>
+        );
+      } else if (matched.startsWith('*') && matched.endsWith('*')) {
+        // Italic
+        parts.push(
+          <em key={match.index} className="italic">
+            {matched.slice(1, -1)}
+          </em>
+        );
+      } else if (matched.startsWith('`') && matched.endsWith('`')) {
+        // Code
+        parts.push(
+          <code key={match.index} className="px-1.5 py-0.5 rounded bg-muted font-mono text-sm">
+            {matched.slice(1, -1)}
+          </code>
+        );
+      }
+
+      lastIndex = match.index + matched.length;
+    }
+
+    // Add remaining text
+    if (lastIndex < text.length) {
+      parts.push(text.substring(lastIndex));
+    }
+
+    return parts.length > 0 ? parts : text;
   };
 
   const filledCount = placeholders.filter(p => p.value).length;
@@ -207,8 +309,17 @@ export default function DocumentFillerPage() {
 
       <main className="container mx-auto px-4 py-8">
         {error && (
-          <div className="mb-6 p-4 bg-destructive/10 border border-destructive/20 rounded-lg text-destructive">
-            <p className="text-sm font-medium">{error}</p>
+          <div className="mb-6 p-4 bg-destructive/10 border border-destructive/20 rounded-lg text-destructive flex items-start gap-3">
+            <div className="flex-1">
+              <p className="text-sm font-medium">{error}</p>
+            </div>
+            <button
+              onClick={() => setError(null)}
+              className="text-destructive hover:text-destructive/80 transition-colors flex-shrink-0"
+              aria-label="Dismiss error"
+            >
+              <X className="w-4 h-4" />
+            </button>
           </div>
         )}
 
@@ -366,9 +477,9 @@ export default function DocumentFillerPage() {
                               : 'bg-muted text-foreground'
                           )}
                         >
-                          <p className="text-sm leading-relaxed whitespace-pre-wrap">
+                          <div className="text-sm leading-relaxed space-y-1">
                             {formatMessageContent(msg.content)}
-                          </p>
+                          </div>
                         </div>
                       </div>
                     ))}
