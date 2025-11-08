@@ -5,6 +5,8 @@ import Docxtemplater from 'docxtemplater';
 /**
  * Generates filled DOCX by directly modifying the original file
  * This preserves all formatting, styles, headers, footers, etc.
+ *
+ * Uses originalText field to match placeholder names exactly as they appear in the document
  */
 export async function generateDocx(
   originalBuffer: ArrayBuffer,
