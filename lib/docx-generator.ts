@@ -38,6 +38,14 @@ export async function generateDocx(
       }
     });
 
+    // Log the document XML content to see actual placeholders
+    const documentXml = zip.files['word/document.xml']?.asText();
+    console.log('Document XML sample (first 1000 chars):', documentXml?.substring(0, 1000));
+
+    // Count how many placeholders docxtemplater will find
+    const foundPlaceholders = documentXml?.match(/\[([^\]]+)\]/g) || [];
+    console.log('Placeholders found in XML:', foundPlaceholders);
+
     // Build data object from placeholders
     const data: Record<string, string> = {};
     for (const placeholder of placeholders) {
@@ -47,13 +55,23 @@ export async function generateDocx(
       }
     }
 
-    console.log('Placeholder data:', data);
+    console.log('Placeholder data to inject:', data);
+    console.log('Number of filled placeholders:', Object.keys(data).length);
 
     // Set the template data
     doc.setData(data);
 
-    // Render the document (replace placeholders)
-    doc.render();
+    try {
+      // Render the document (replace placeholders)
+      doc.render();
+    } catch (renderError: any) {
+      console.error('Render error details:', {
+        message: renderError.message,
+        properties: renderError.properties,
+        stack: renderError.stack
+      });
+      throw renderError;
+    }
 
     // Get the filled document as a buffer
     const buffer = doc.getZip().generate({
