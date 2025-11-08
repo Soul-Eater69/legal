@@ -67,7 +67,7 @@ export async function generateDocx(
       }
     }
 
-    console.log('Placeholder data to inject:', data);
+    console.log('Placeholder data to inject (using originalText):', data);
     console.log('Number of filled placeholders:', Object.keys(data).length);
 
     // Use render() with data directly (modern API)
