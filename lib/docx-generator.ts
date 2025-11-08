@@ -27,10 +27,15 @@ export async function generateDocx(
     // Create a PizZip instance with the original file
     const zip = new PizZip(nodeBuffer);
     
-    // Create docxtemplater instance
+    // Create docxtemplater instance with custom delimiters
+    // Use square brackets [PLACEHOLDER] instead of default curly braces {PLACEHOLDER}
     const doc = new Docxtemplater(zip, {
       paragraphLoop: true,
       linebreaks: true,
+      delimiters: {
+        start: '[',
+        end: ']'
+      }
     });
 
     // Build data object from placeholders
