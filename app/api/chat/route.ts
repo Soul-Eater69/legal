@@ -38,10 +38,11 @@ export async function POST(request: NextRequest) {
     };
     addMessageToSession(sessionId, userMessage);
 
-    // Process conversation
+    // Process conversation with full history for AI context
     const result = await processConversation(
       message,
-      placeholders
+      placeholders,
+      session.conversationHistory
     );
 
     // Update session with new placeholders
