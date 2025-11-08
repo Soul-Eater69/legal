@@ -1,5 +1,6 @@
 export interface Placeholder {
-  name: string;
+  name: string; // Normalized version (COMPANY_NAME)
+  originalText: string; // Original text from document (Company Name)
   value: string | null;
   type: 'text' | 'date' | 'number' | 'email' | 'state';
   description?: string;
