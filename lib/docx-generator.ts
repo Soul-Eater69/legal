@@ -39,12 +39,21 @@ export async function generateDocx(
     });
 
     // Log the document XML content to see actual placeholders
-    const documentXml = zip.files['word/document.xml']?.asText();
-    console.log('Document XML sample (first 1000 chars):', documentXml?.substring(0, 1000));
+    try {
+      const documentXml = zip.file('word/document.xml')?.asText();
+      if (documentXml) {
+        console.log('Document XML length:', documentXml.length);
 
-    // Count how many placeholders docxtemplater will find
-    const foundPlaceholders = documentXml?.match(/\[([^\]]+)\]/g) || [];
-    console.log('Placeholders found in XML:', foundPlaceholders);
+        // Count how many placeholders docxtemplater will find
+        const foundPlaceholders = documentXml.match(/\[([^\]]+)\]/g) || [];
+        console.log('Placeholders found in XML:', foundPlaceholders.slice(0, 20)); // First 20 to avoid log overflow
+        console.log('Total placeholders in XML:', foundPlaceholders.length);
+      } else {
+        console.log('Could not access document.xml');
+      }
+    } catch (xmlError) {
+      console.error('Error reading XML:', xmlError);
+    }
 
     // Build data object from placeholders
     const data: Record<string, string> = {};
@@ -58,12 +67,10 @@ export async function generateDocx(
     console.log('Placeholder data to inject:', data);
     console.log('Number of filled placeholders:', Object.keys(data).length);
 
-    // Set the template data
-    doc.setData(data);
-
+    // Use render() with data directly (modern API)
     try {
-      // Render the document (replace placeholders)
-      doc.render();
+      doc.render(data);
+      console.log('Document rendered successfully');
     } catch (renderError: any) {
       console.error('Render error details:', {
         message: renderError.message,
