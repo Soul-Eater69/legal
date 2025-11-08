@@ -1,15 +1,32 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { processConversation } from '@/lib/ai-client';
+import { getSession, updateSessionPlaceholders, addMessageToSession } from '@/lib/session-manager';
 import { Message } from '@/lib/types';
 
 export async function POST(request: NextRequest) {
   try {
-    const { message, placeholders, conversationHistory } = await request.json();
+    const { sessionId, message, placeholders } = await request.json();
 
-    if (!message || !placeholders || !conversationHistory) {
+    if (!sessionId) {
       return NextResponse.json(
-        { error: 'Missing required fields: message, placeholders, or conversationHistory' },
+        { error: 'Session ID is required' },
         { status: 400 }
+      );
+    }
+
+    if (!message || !placeholders) {
+      return NextResponse.json(
+        { error: 'Missing required fields: message or placeholders' },
+        { status: 400 }
+      );
+    }
+
+    // Get the session
+    const session = getSession(sessionId);
+    if (!session) {
+      return NextResponse.json(
+        { error: 'Session not found or expired. Please upload the document again.' },
+        { status: 404 }
       );
     }
 
@@ -19,12 +36,17 @@ export async function POST(request: NextRequest) {
       content: message,
       timestamp: new Date(),
     };
+    addMessageToSession(sessionId, userMessage);
 
-    // Process conversation
+    // Process conversation with full history for AI context
     const result = await processConversation(
       message,
-      placeholders
+      placeholders,
+      session.conversationHistory
     );
+
+    // Update session with new placeholders
+    updateSessionPlaceholders(sessionId, result.updatedPlaceholders);
 
     // Add assistant message to history
     const assistantMessage: Message = {
@@ -32,17 +54,18 @@ export async function POST(request: NextRequest) {
       content: result.response,
       timestamp: new Date(),
     };
+    const updatedSession = addMessageToSession(sessionId, assistantMessage);
 
     return NextResponse.json({
       message: result.response,
       updatedPlaceholders: result.updatedPlaceholders,
       isComplete: result.isComplete,
-      conversationHistory: [...conversationHistory, userMessage, assistantMessage],
+      conversationHistory: updatedSession?.conversationHistory || [],
     });
   } catch (error) {
     console.error('Chat error:', error);
     return NextResponse.json(
-      { error: 'Failed to process message' },
+      { error: error instanceof Error ? error.message : 'Failed to process message' },
       { status: 500 }
     );
   }
