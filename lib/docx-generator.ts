@@ -27,11 +27,33 @@ export async function generateDocx(
     // Create a PizZip instance with the original file
     const zip = new PizZip(nodeBuffer);
     
-    // Create docxtemplater instance
+    // Create docxtemplater instance with custom delimiters
+    // Use square brackets [PLACEHOLDER] instead of default curly braces {PLACEHOLDER}
     const doc = new Docxtemplater(zip, {
       paragraphLoop: true,
       linebreaks: true,
+      delimiters: {
+        start: '[',
+        end: ']'
+      }
     });
+
+    // Log the document XML content to see actual placeholders
+    try {
+      const documentXml = zip.file('word/document.xml')?.asText();
+      if (documentXml) {
+        console.log('Document XML length:', documentXml.length);
+
+        // Count how many placeholders docxtemplater will find
+        const foundPlaceholders = documentXml.match(/\[([^\]]+)\]/g) || [];
+        console.log('Placeholders found in XML:', foundPlaceholders.slice(0, 20)); // First 20 to avoid log overflow
+        console.log('Total placeholders in XML:', foundPlaceholders.length);
+      } else {
+        console.log('Could not access document.xml');
+      }
+    } catch (xmlError) {
+      console.error('Error reading XML:', xmlError);
+    }
 
     // Build data object from placeholders
     const data: Record<string, string> = {};
@@ -42,13 +64,21 @@ export async function generateDocx(
       }
     }
 
-    console.log('Placeholder data:', data);
+    console.log('Placeholder data to inject:', data);
+    console.log('Number of filled placeholders:', Object.keys(data).length);
 
-    // Set the template data
-    doc.setData(data);
-
-    // Render the document (replace placeholders)
-    doc.render();
+    // Use render() with data directly (modern API)
+    try {
+      doc.render(data);
+      console.log('Document rendered successfully');
+    } catch (renderError: any) {
+      console.error('Render error details:', {
+        message: renderError.message,
+        properties: renderError.properties,
+        stack: renderError.stack
+      });
+      throw renderError;
+    }
 
     // Get the filled document as a buffer
     const buffer = doc.getZip().generate({
